@@ -2,8 +2,13 @@ import CodeRunner from './helpers/run.js'
 import dotenv from 'dotenv'
 import rabbit from './helpers/rabbit.js'
 import redisClient from './helpers/redis.js'
+import * as Sentry from '@sentry/node'
 
 dotenv.config()
+Sentry.init({
+	dsn: process.env.SENTRY_DSN,
+	tracesSampleRate: 1.0
+})
 
 const codeRunner = new CodeRunner()
 
@@ -30,6 +35,9 @@ const runWorker = async () => {
 			await redisClient.set(id, JSON.stringify(output))
 		} catch (error) {
 			console.log('Error', error)
+			if (process.env.NODE_ENV === 'production') {
+				Sentry.captureException(error)
+			}
 		} finally {
 			channel.ack(msg)
 			console.log('Message acknowledged')
