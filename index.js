@@ -7,26 +7,34 @@ dotenv.config()
 
 const codeRunner = new CodeRunner()
 
-const runCode = async () => {
+const runWorker = async () => {
+	console.log('Starting worker')
 	await rabbit.connect()
-	console.log('connected')
 	const { channel } = rabbit
 	await rabbit.channel.assertQueue('MS_TM_Q')
 	await rabbit.consume('MS_TM_Q', async (msg, message) => {
+		console.log('Consuming message')
 		try {
 			if (message === null) {
+				console.log('Message is null')
 				return
 			}
 			const { code, lang, id } = message
-			const output = await codeRunner.runCode(code, lang)
-			console.log('output', output)
-			await redisClient.set(id, output)
+			const { stdout, stderr } = await codeRunner.runCode(code, lang)
+			const result = stdout ? stdout : stderr
+			const output = {
+				result,
+				status: 'completed'
+			}
+			console.log('Output', output)
+			await redisClient.set(id, JSON.stringify(output))
 		} catch (error) {
-			console.log(error)
+			console.log('Error', error)
 		} finally {
 			channel.ack(msg)
+			console.log('Message acknowledged')
 		}
 	})
 }
 
-runCode()
+runWorker()
