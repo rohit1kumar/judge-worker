@@ -1,53 +1,93 @@
-import { EventEmitter } from 'events'
 import amqp from 'amqplib'
 import dotenv from 'dotenv'
 
 dotenv.config()
 
-class RabbitMQ extends EventEmitter {
+class RabbitMQ {
 	constructor() {
-		super()
 		this.connection = null
 		this.channel = null
 		this.consumerTag = null
+		this.connected = false
+		this.connecting = false
 		this.reconnectTimeout = null
 	}
 
 	async connect() {
-		if (this.connection) {
+		const url = process.env.RABBITMQ_URL
+		if (this.connected) {
 			return this.channel
 		}
+		if (this.connecting) {
+			await new Promise((resolve) => {
+				const check = () => {
+					if (this.connected) {
+						resolve(this.channel)
+					} else {
+						setTimeout(check, 100)
+					}
+				}
+				check()
+			})
+			return this.channel
+		}
+		this.connecting = true
 		try {
-			this.connection = await amqp.connect(process.env.RABBITMQ_URL)
+			this.connection = await amqp.connect(url)
+			// defaultLogger.info('RabbitMQ connection established');
+			console.log('RabbitMQ connection established')
 			this.channel = await this.connection.createChannel()
-			this.emit('connected')
-			this.addListeners()
+			// defaultLogger.info('RabbitMQ channel created');
+			console.log('RabbitMQ channel created')
+			this.connected = true
+			this.connecting = false
+			this.connection.on('error', (error) => {
+				this.connected = false
+				// defaultLogger
+				//   .error(`RabbitMQ connection dropped due to an error:`, error)
+				//   .slackSend();
+				console.log(`RabbitMQ connection dropped due to an error:`, error)
+				this.reconnect()
+			})
+			this.connection.on('close', (error) => {
+				// defaultLogger
+				//   .error(`RabbitMQ connection dropped (closed):`, error)
+				//   .slackSend();
+				console.log(`RabbitMQ connection dropped (closed):`, error)
+				this.connected = false
+				this.reconnect()
+			})
+			return this.channel
 		} catch (error) {
-			this.emit('error', error)
+			// defaultLogger.error(`Failed to connect to RabbitMQ:`, error).slackSend();
+			console.log(`Failed to connect to RabbitMQ:`, error)
+			this.connected = false
+			this.connecting = false
 			this.reconnect()
+			throw error
 		}
 	}
 
-	addListeners() {
-		this.connection.on('error', (error) =>
-			this.handleDisconnect('error', error)
-		)
-		this.connection.on('close', (error) =>
-			this.handleDisconnect('close', error)
-		)
-	}
-
-	handleDisconnect(reason, error) {
-		this.connection = null
-		this.channel = null
-		this.emit('disconnected', { reason, error })
-		this.reconnect()
+	async close() {
+		if (this.connection) {
+			await this.connection.close()
+			this.connection = null
+		}
+		if (this.channel) {
+			await this.channel.close()
+			this.channel = null
+		}
+		this.connected = false
+		this.connecting = false
+		clearTimeout(this.reconnectTimeout)
 	}
 
 	reconnect() {
 		if (this.reconnectTimeout) {
 			return
 		}
+		// defaultLogger.error('Reconnecting to RabbitMQ...').slackSend();
+		console.log('Reconnecting to RabbitMQ...')
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null
 			await this.connect()
@@ -63,7 +103,8 @@ class RabbitMQ extends EventEmitter {
 			)
 			if (!isSent) throw Error('sendToQueue returned false')
 		} catch (error) {
-			this.emit('error', error)
+			// logger.error('Error in rabbit.sendToQueue', error).slackSend();
+			console.log('Error in rabbit.sendToQueue', error)
 		}
 	}
 
@@ -71,73 +112,59 @@ class RabbitMQ extends EventEmitter {
 		try {
 			const consumer = await this.channel.consume(
 				queueName,
-				(msg) => this.handleMessage(msg, messageHandler),
-				{ consumerTag: 'default' }
+				(msg) => {
+					try {
+						const message = JSON.parse(msg.content.toString())
+						messageHandler(msg, message)
+					} catch (error) {
+						// defaultLogger.error(`Unable to consume message ${msg}`, error);
+						console.log(`Unable to consume message ${msg}`, error)
+					}
+				},
+				{
+					consumerTag: 'default'
+				}
 			)
 			this.consumerTag = consumer?.consumerTag
-			this.emit('consumeStarted', this.consumerTag)
+			// defaultLogger.info(`Started consumer: ${this.consumerTag}`);
+			console.log(`Started consumer: ${this.consumerTag}`)
 		} catch (error) {
-			this.emit('error', error)
-		}
-	}
-
-	handleMessage(msg, messageHandler) {
-		try {
-			const message = JSON.parse(msg.content.toString())
-			messageHandler(msg, message)
-		} catch (error) {
-			this.emit('error', error)
+			// defaultLogger
+			// .error(`Unable to start consuming queue "${queueName}"`, error)
+			// .slackSend();
+			console.log(`Unable to start consuming queue "${queueName}"`, error)
 		}
 	}
 }
 
 const rabbit = new RabbitMQ()
-rabbit.on('connected', () => console.log('RabbitMQ connection established'))
-rabbit.on('disconnected', ({ reason, error }) =>
-	console.log(`RabbitMQ connection dropped (${reason}):`, error)
-)
-rabbit.on('consumeStarted', (consumerTag) =>
-	console.log(`Started consumer: ${consumerTag}`)
-)
-rabbit.on('error', (error) => console.log('Error:', error))
-
 rabbit.connect()
 
 async function stopConsuming(event) {
 	try {
+		// defaultLogger.info(
+		//   `Received ${event}, stopping the consumer ${rabbit.consumerTag}`
+		// );
 		console.log(
 			`Received ${event}, stopping the consumer ${rabbit.consumerTag}`
 		)
-		if (rabbit.connection) {
+		if (rabbit?.connected) {
 			await rabbit.channel.cancel(rabbit.consumerTag || 'default')
+			// defaultLogger.info(`Received ${event}, stopped the consumer`);
 			console.log(`Received ${event}, stopped the consumer`)
 		} else {
+			// defaultLogger.info(`Couldn't stop consumer, closing connection`);
 			console.log(`Couldn't stop consumer, closing connection`)
 			await rabbit.close()
+			// defaultLogger.info(`Couldn't stop consumer, closed connection`);
 			console.log(`Couldn't stop consumer, closed connection`)
 		}
 	} catch (error) {
+		// defaultLogger.error('Error in stopConsuming', error);
 		console.log('Error in stopConsuming', error)
 	}
 }
 
-async function stopListening(event) {
-	try {
-		console.log(`Received ${event}, stopping listening`)
-		if (rabbit.connection) {
-			await rabbit.channel.close()
-			console.log(`Received ${event}, stopped listening`)
-		} else {
-			console.log(`Couldn't stop listening, closing connection`)
-			await rabbit.close()
-			console.log(`Couldn't stop listening, closed connection`)
-		}
-	} catch (error) {
-		console.log('Error in stopListening', error)
-	}
-}
-
 process.on('SIGTERM', stopConsuming)
-process.on('SIGINT', stopListening)
 
 export default rabbit
