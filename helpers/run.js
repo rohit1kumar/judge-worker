@@ -70,6 +70,7 @@ class CodeRunner {
 			const { stdout, stderr } = await this.executeCommand(dockerCommand)
 			return { stdout, stderr }
 		} catch (error) {
+			console.log('Error', error)
 			return error
 		}
 	}
