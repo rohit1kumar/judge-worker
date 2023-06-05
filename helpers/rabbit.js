@@ -140,31 +140,31 @@ class RabbitMQ {
 const rabbit = new RabbitMQ()
 rabbit.connect()
 
-async function stopConsuming(event) {
-	try {
-		// defaultLogger.info(
-		//   `Received ${event}, stopping the consumer ${rabbit.consumerTag}`
-		// );
-		console.log(
-			`Received ${event}, stopping the consumer ${rabbit.consumerTag}`
-		)
-		if (rabbit?.connected) {
-			await rabbit.channel.cancel(rabbit.consumerTag || 'default')
-			// defaultLogger.info(`Received ${event}, stopped the consumer`);
-			console.log(`Received ${event}, stopped the consumer`)
-		} else {
-			// defaultLogger.info(`Couldn't stop consumer, closing connection`);
-			console.log(`Couldn't stop consumer, closing connection`)
-			await rabbit.close()
-			// defaultLogger.info(`Couldn't stop consumer, closed connection`);
-			console.log(`Couldn't stop consumer, closed connection`)
-		}
-	} catch (error) {
-		// defaultLogger.error('Error in stopConsuming', error);
-		console.log('Error in stopConsuming', error)
-	}
-}
+// async function stopConsuming(event) {
+// 	try {
+// 		// defaultLogger.info(
+// 		//   `Received ${event}, stopping the consumer ${rabbit.consumerTag}`
+// 		// );
+// 		console.log(
+// 			`Received ${event}, stopping the consumer ${rabbit.consumerTag}`
+// 		)
+// 		if (rabbit?.connected) {
+// 			await rabbit.channel.cancel(rabbit.consumerTag || 'default')
+// 			// defaultLogger.info(`Received ${event}, stopped the consumer`);
+// 			console.log(`Received ${event}, stopped the consumer`)
+// 		} else {
+// 			// defaultLogger.info(`Couldn't stop consumer, closing connection`);
+// 			console.log(`Couldn't stop consumer, closing connection`)
+// 			await rabbit.close()
+// 			// defaultLogger.info(`Couldn't stop consumer, closed connection`);
+// 			console.log(`Couldn't stop consumer, closed connection`)
+// 		}
+// 	} catch (error) {
+// 		// defaultLogger.error('Error in stopConsuming', error);
+// 		console.log('Error in stopConsuming', error)
+// 	}
+// }
 
-process.on('SIGTERM', stopConsuming)
+// process.on('SIGTERM', stopConsuming)
 
 export default rabbit
